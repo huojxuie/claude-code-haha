@@ -25,6 +25,9 @@ import { TelegramMediaService } from './media.js'
 import { AttachmentStore } from '../common/attachment/attachment-store.js'
 import { checkAttachmentLimit } from '../common/attachment/attachment-limits.js'
 import type { AttachmentRef } from '../common/ws-bridge.js'
+import { ImageBlockWatcher } from '../common/attachment/image-block-watcher.js'
+import type { PendingUpload } from '../common/attachment/attachment-types.js'
+import * as fs from 'node:fs/promises'
 
 const TELEGRAM_TEXT_LIMIT = 4000 // leave margin below 4096
 
@@ -56,6 +59,17 @@ const buffers = new Map<string, MessageBuffer>()
 // Track chats waiting for project selection
 const pendingProjectSelection = new Map<string, boolean>()
 const runtimeStates = new Map<string, ChatRuntimeState>()
+/** Per-chat outbound image watcher for Agent-produced markdown images. */
+const tgImageWatchers = new Map<string, ImageBlockWatcher>()
+
+function getTgWatcher(chatId: string): ImageBlockWatcher {
+  let w = tgImageWatchers.get(chatId)
+  if (!w) {
+    w = new ImageBlockWatcher()
+    tgImageWatchers.set(chatId, w)
+  }
+  return w
+}
 
 type ChatRuntimeState = {
   state: 'idle' | 'thinking' | 'streaming' | 'tool_executing' | 'permission_pending'
@@ -94,6 +108,7 @@ function clearTransientChatState(chatId: string): void {
   runtime.state = 'idle'
   runtime.verb = undefined
   runtime.pendingPermissionCount = 0
+  tgImageWatchers.delete(chatId)
 }
 
 async function ensureExistingSession(chatId: string): Promise<{ sessionId: string; workDir: string } | null> {
@@ -261,6 +276,51 @@ async function showProjectPicker(chatId: string): Promise<void> {
   }
 }
 
+// ---------- outbound media dispatch ----------
+
+/** Upload a PendingUpload found in streaming output and send it via
+ *  bot.api.sendPhoto as an independent message. Runs fire-and-forget
+ *  from the stream handler so streaming text isn't blocked. */
+async function dispatchOutboundMedia(chatId: string, pending: PendingUpload): Promise<void> {
+  const numericChatId = Number(chatId)
+  try {
+    let buffer: Buffer
+    let mime = 'image/png'
+    switch (pending.source.kind) {
+      case 'base64': {
+        buffer = Buffer.from(pending.source.data, 'base64')
+        mime = pending.source.mime
+        break
+      }
+      case 'path': {
+        buffer = await fs.readFile(pending.source.path)
+        mime = pending.source.mime ?? 'image/png'
+        break
+      }
+      case 'url': {
+        const resp = await fetch(pending.source.url)
+        if (!resp.ok) {
+          throw new Error(`fetch ${pending.source.url} -> ${resp.status}`)
+        }
+        buffer = Buffer.from(await resp.arrayBuffer())
+        mime = pending.source.mime ?? resp.headers.get('content-type') ?? 'image/png'
+        break
+      }
+    }
+    const check = checkAttachmentLimit('image', buffer.length, mime)
+    if (!check.ok) {
+      console.warn('[Telegram] Outbound image rejected:', check.hint)
+      return
+    }
+    await media.sendPhoto(numericChatId, buffer, pending.alt)
+  } catch (err) {
+    console.error(
+      '[Telegram] dispatchOutboundMedia failed:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
 // ---------- server message handler ----------
 
 async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<void> {
@@ -311,6 +371,10 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'content_delta':
       if (msg.text) {
         buf.append(msg.text)
+        const newUploads = getTgWatcher(chatId).feed(msg.text)
+        for (const pending of newUploads) {
+          void dispatchOutboundMedia(chatId, pending)
+        }
       }
       break
 
@@ -408,6 +472,7 @@ async function startNewSession(chatId: string, query?: string): Promise<void> {
   buffers.delete(chatId)
   pendingProjectSelection.delete(chatId)
   runtimeStates.delete(chatId)
+  tgImageWatchers.delete(chatId)
 
   if (query) {
     try {
