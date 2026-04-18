@@ -14,7 +14,7 @@ import type {
 // 与后端 src/server/api/models.ts 的 DEFAULT_MODEL 保持一致:
 // 切回"官方"时把聊天页的 currentModel 重置到这个,避免残留第三方 provider
 // 的 model id 在官方模型列表里找不到、ModelSelector 显示但不选中的状态。
-const OFFICIAL_DEFAULT_MODEL_ID = 'claude-opus-4-6'
+const OFFICIAL_DEFAULT_MODEL_ID = 'claude-opus-4-7'
 
 type ProviderStore = {
   providers: SavedProvider[]
