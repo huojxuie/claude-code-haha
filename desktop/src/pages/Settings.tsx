@@ -3,6 +3,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useTranslation } from '../i18n'
 import { Modal } from '../components/shared/Modal'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
 import type { PermissionMode, EffortLevel, ThemeMode } from '../types/settings'
@@ -116,6 +117,8 @@ function ProviderSettings() {
   const t = useTranslation()
   const [editingProvider, setEditingProvider] = useState<SavedProvider | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [pendingDeleteProvider, setPendingDeleteProvider] = useState<SavedProvider | null>(null)
+  const [isDeletingProvider, setIsDeletingProvider] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; result?: ProviderTestResult }>>({})
 
   useEffect(() => {
@@ -130,8 +133,20 @@ function ProviderSettings() {
 
   const handleDelete = async (provider: SavedProvider) => {
     if (activeId === provider.id) return
-    if (!window.confirm(t('settings.providers.confirmDelete', { name: provider.name }))) return
-    await deleteProvider(provider.id).catch(console.error)
+    setPendingDeleteProvider(provider)
+  }
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteProvider) return
+    setIsDeletingProvider(true)
+    try {
+      await deleteProvider(pendingDeleteProvider.id)
+      setPendingDeleteProvider(null)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsDeletingProvider(false)
+    }
   }
 
   const handleTest = async (provider: SavedProvider) => {
@@ -281,6 +296,21 @@ function ProviderSettings() {
       {editingProvider && (
         <ProviderFormModal key={editingProvider.id} open={true} onClose={() => setEditingProvider(null)} mode="edit" provider={editingProvider} presets={presets} />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteProvider !== null}
+        onClose={() => {
+          if (isDeletingProvider) return
+          setPendingDeleteProvider(null)
+        }}
+        onConfirm={confirmDelete}
+        title={t('common.delete')}
+        body={pendingDeleteProvider ? t('settings.providers.confirmDelete', { name: pendingDeleteProvider.name }) : ''}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+        loading={isDeletingProvider}
+      />
     </div>
   )
 }

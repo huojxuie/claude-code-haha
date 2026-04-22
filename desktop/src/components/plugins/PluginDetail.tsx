@@ -4,6 +4,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useTranslation } from '../../i18n'
 import { useUIStore } from '../../stores/uiStore'
 import { Button } from '../shared/Button'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { PluginCapabilityKey } from '../../types/plugin'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useSkillStore } from '../../stores/skillStore'
@@ -36,6 +37,7 @@ export function PluginDetail() {
   const selectServer = useMcpStore((s) => s.selectServer)
   const t = useTranslation()
   const [actionKey, setActionKey] = useState<string | null>(null)
+  const [showUninstallDialog, setShowUninstallDialog] = useState(false)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const currentWorkDir = activeSession?.workDir || undefined
@@ -96,11 +98,6 @@ export function PluginDetail() {
     } finally {
       setActionKey(null)
     }
-  }
-
-  const confirmUninstall = () => {
-    const label = t('settings.plugins.confirmUninstall', { name: selectedPlugin.name })
-    return window.confirm(label)
   }
 
   const openSettingsTab = (tab: 'skills' | 'agents' | 'mcp') => {
@@ -290,8 +287,7 @@ export function PluginDetail() {
               size="sm"
               loading={isApplying && actionKey === 'uninstall'}
               onClick={() => {
-                if (!confirmUninstall()) return
-                void runAction('uninstall', () => uninstallPlugin(selectedPlugin.id, selectedPlugin.scope, false, currentWorkDir))
+                setShowUninstallDialog(true)
               }}
             >
               {t('settings.plugins.uninstall')}
@@ -483,6 +479,24 @@ export function PluginDetail() {
           </div>
         </div>
       </section>
+
+      <ConfirmDialog
+        open={showUninstallDialog}
+        onClose={() => {
+          if (isApplying && actionKey === 'uninstall') return
+          setShowUninstallDialog(false)
+        }}
+        onConfirm={async () => {
+          setShowUninstallDialog(false)
+          await runAction('uninstall', () => uninstallPlugin(selectedPlugin.id, selectedPlugin.scope, false, currentWorkDir))
+        }}
+        title={t('settings.plugins.uninstall')}
+        body={t('settings.plugins.confirmUninstall', { name: selectedPlugin.name })}
+        confirmLabel={t('settings.plugins.uninstall')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+        loading={isApplying && actionKey === 'uninstall'}
+      />
     </div>
   )
 }

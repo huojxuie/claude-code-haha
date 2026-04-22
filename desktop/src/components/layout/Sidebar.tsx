@@ -3,6 +3,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
 import { ProjectFilter } from './ProjectFilter'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -29,6 +30,7 @@ export function Sidebar() {
   const disconnectSession = useChatStore((s) => s.disconnectSession)
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
@@ -67,12 +69,18 @@ export function Sidebar() {
     setContextMenu({ id, x: e.clientX, y: e.clientY })
   }, [])
 
-  const handleDelete = useCallback(async (id: string) => {
+  const handleDelete = useCallback((id: string) => {
     setContextMenu(null)
-    await deleteSession(id)
-    disconnectSession(id)
-    closeTab(id)
-  }, [closeTab, deleteSession, disconnectSession])
+    setPendingDeleteSessionId(id)
+  }, [])
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDeleteSessionId) return
+    await deleteSession(pendingDeleteSessionId)
+    disconnectSession(pendingDeleteSessionId)
+    closeTab(pendingDeleteSessionId)
+    setPendingDeleteSessionId(null)
+  }, [closeTab, deleteSession, disconnectSession, pendingDeleteSessionId])
 
   const handleStartRename = useCallback((id: string, currentTitle: string) => {
     setContextMenu(null)
@@ -351,6 +359,17 @@ export function Sidebar() {
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteSessionId !== null}
+        onClose={() => setPendingDeleteSessionId(null)}
+        onConfirm={confirmDelete}
+        title={t('common.delete')}
+        body={pendingDeleteSessionId ? t('sidebar.confirmDelete') : ''}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+      />
     </aside>
   )
 }

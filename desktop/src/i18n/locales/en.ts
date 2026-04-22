@@ -24,6 +24,7 @@ export const en = {
   'sidebar.noMatching': 'No matching sessions',
   'sidebar.sessionListFailed': 'Session list failed to load',
   'sidebar.missingDir': 'missing dir',
+  'sidebar.confirmDelete': 'Delete this session? This cannot be undone.',
   'sidebar.allProjects': 'All projects',
   'sidebar.other': 'Other',
   'sidebar.timeGroup.today': 'Today',

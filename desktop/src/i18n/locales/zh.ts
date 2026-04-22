@@ -26,6 +26,7 @@ export const zh: Record<TranslationKey, string> = {
   'sidebar.noMatching': '没有匹配的会话',
   'sidebar.sessionListFailed': '会话列表加载失败',
   'sidebar.missingDir': '目录缺失',
+  'sidebar.confirmDelete': '确定要删除这个会话吗？此操作不可撤销。',
   'sidebar.allProjects': '所有项目',
   'sidebar.other': '其他',
   'sidebar.timeGroup.today': '今天',
