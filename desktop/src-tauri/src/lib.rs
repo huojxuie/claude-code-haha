@@ -603,19 +603,22 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let app_root_arg = app_root.to_string_lossy().to_string();
 
     // 单一合并 sidecar：第一个参数选 server / cli / adapters 模式。
-    let sidecar = app
+    let mut sidecar = app
         .shell()
         .sidecar("claude-sidecar")
-        .map_err(|err| format!("resolve sidecar: {err}"))?
-        .args([
-            "server",
-            "--app-root",
-            &app_root_arg,
-            "--host",
-            host,
-            "--port",
-            &port.to_string(),
-        ]);
+        .map_err(|err| format!("resolve sidecar: {err}"))?;
+    for (key, value) in terminal_environment(&default_shell()) {
+        sidecar = sidecar.env(key, value);
+    }
+    let sidecar = sidecar.args([
+        "server",
+        "--app-root",
+        &app_root_arg,
+        "--host",
+        host,
+        "--port",
+        &port.to_string(),
+    ]);
 
     let startup_logs = Arc::new(Mutex::new(VecDeque::new()));
     let logs_for_task = Arc::clone(&startup_logs);
@@ -707,18 +710,20 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         server_http_url.clone()
     };
 
-    let sidecar = app
+    let mut sidecar = app
         .shell()
         .sidecar("claude-sidecar")
-        .map_err(|err| format!("resolve sidecar: {err}"))?
-        .env("ADAPTER_SERVER_URL", &server_ws_url)
-        .args([
-            "adapters",
-            "--app-root",
-            &app_root_arg,
-            "--feishu",
-            "--telegram",
-        ]);
+        .map_err(|err| format!("resolve sidecar: {err}"))?;
+    for (key, value) in terminal_environment(&default_shell()) {
+        sidecar = sidecar.env(key, value);
+    }
+    let sidecar = sidecar.env("ADAPTER_SERVER_URL", &server_ws_url).args([
+        "adapters",
+        "--app-root",
+        &app_root_arg,
+        "--feishu",
+        "--telegram",
+    ]);
 
     let (mut rx, child) = sidecar
         .spawn()
