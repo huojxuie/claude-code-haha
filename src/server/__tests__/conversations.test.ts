@@ -14,6 +14,24 @@ import { ConversationService, ConversationStartupError, conversationService } fr
 import { SessionService } from '../services/sessionService.js'
 import { ProviderService } from '../services/providerService.js'
 
+async function rmWithRetry(targetPath: string): Promise<void> {
+  const attempts = process.platform === 'win32' ? 5 : 1
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await fs.rm(targetPath, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (
+        attempt === attempts - 1 ||
+        !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code || '')
+      ) {
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)))
+    }
+  }
+}
+
 // ============================================================================
 // ConversationService unit tests
 // ============================================================================
@@ -909,6 +927,7 @@ describe('WebSocket Chat Integration', () => {
 
   it('should keep a long desktop session alive in a /tmp project across engineering turns', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-issue247-project-'))
+    let sessionId: string | undefined
 
     try {
       await fs.writeFile(
@@ -927,7 +946,7 @@ describe('WebSocket Chat Integration', () => {
         body: JSON.stringify({ workDir: projectDir }),
       })
       expect(createRes.status).toBe(201)
-      const { sessionId } = await createRes.json() as { sessionId: string }
+      ;({ sessionId } = await createRes.json() as { sessionId: string })
 
       const prompts = [
         'Inspect this TypeScript project and summarize what you see.',
@@ -943,7 +962,10 @@ describe('WebSocket Chat Integration', () => {
         expect(messages.some((m) => m.type === 'message_complete')).toBe(true)
       }
     } finally {
-      await fs.rm(projectDir, { recursive: true, force: true })
+      if (sessionId) {
+        await conversationService.stopSession(sessionId)
+      }
+      await rmWithRetry(projectDir)
     }
   }, 20_000)
 
