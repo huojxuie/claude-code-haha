@@ -31,6 +31,12 @@ import { ClaudeOfficialLogin } from '../components/settings/ClaudeOfficialLogin'
 import { useUpdateStore } from '../stores/updateStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
+import {
+  API_KEY_JSON_PLACEHOLDER,
+  maskSettingsJsonSecrets,
+  restoreSettingsJsonSecrets,
+  stripProviderSettingsJsonEnv,
+} from '../lib/providerSettingsJson'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -506,39 +512,6 @@ function openExternalUrl(url: string) {
     .catch(() => window.open(url, '_blank', 'noopener,noreferrer'))
 }
 
-const API_KEY_JSON_PLACEHOLDER = '••••••••'
-const API_KEY_JSON_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const
-
-function maskSettingsJsonSecrets(raw: string, apiKey: string): string {
-  if (!apiKey.trim()) return raw
-  try {
-    const parsed = JSON.parse(raw) as { env?: Record<string, unknown> }
-    if (!parsed.env || typeof parsed.env !== 'object') return raw
-    let changed = false
-    for (const key of API_KEY_JSON_KEYS) {
-      if (parsed.env[key] === apiKey) {
-        parsed.env[key] = API_KEY_JSON_PLACEHOLDER
-        changed = true
-      }
-    }
-    return changed ? JSON.stringify(parsed, null, 2) : raw
-  } catch {
-    return raw
-  }
-}
-
-function restoreSettingsJsonSecrets<T>(settings: T, apiKey: string): T {
-  if (!apiKey.trim() || !settings || typeof settings !== 'object') return settings
-  const parsed = settings as { env?: Record<string, unknown> }
-  if (!parsed.env || typeof parsed.env !== 'object') return settings
-  for (const key of API_KEY_JSON_KEYS) {
-    if (parsed.env[key] === API_KEY_JSON_PLACEHOLDER) {
-      parsed.env[key] = apiKey
-    }
-  }
-  return settings
-}
-
 function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderFormProps) {
   const { createProvider, updateProvider, testConfig } = useProviderStore()
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
@@ -548,11 +521,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const regularPresets = availablePresets.filter((p) => !p.featured)
   const featuredPresets = availablePresets.filter((p) => p.featured)
   const presetDefaultEnvKeys = useMemo(
-    () => new Set([
-      AUTO_COMPACT_WINDOW_ENV_KEY,
-      MODEL_CONTEXT_WINDOWS_ENV_KEY,
-      ...presets.flatMap((preset) => Object.keys(preset.defaultEnv ?? {})),
-    ]),
+    () => presets.flatMap((preset) => Object.keys(preset.defaultEnv ?? {})),
     [presets],
   )
   const fallbackPreset = provider
@@ -601,9 +570,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
         const autoCompactWindowEnv = autoCompactWindow.trim()
         const modelContextWindows = buildModelContextWindows(models, modelContextInputs)
         const existingEnv = (settings.env as Record<string, string>) || {}
-        const cleanedEnv = Object.fromEntries(
-          Object.entries(existingEnv).filter(([key]) => !presetDefaultEnvKeys.has(key)),
-        )
+        const cleanedEnv = stripProviderSettingsJsonEnv(existingEnv, presetDefaultEnvKeys)
         const merged = {
           ...settings,
           skipWebFetchPreflight: settings.skipWebFetchPreflight ?? true,
@@ -653,7 +620,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const promoText = selectedPreset.promoText?.trim()
   const displayedSettingsJson = showApiKey
     ? settingsJson
-    : maskSettingsJsonSecrets(settingsJson, apiKey)
+    : maskSettingsJsonSecrets(settingsJson)
   const apiFormatItems = [
     {
       value: 'anthropic' as const,
@@ -735,7 +702,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
       // settings never conflict with the user's global ~/.claude/settings.json.
       if (settingsJson.trim()) {
         try {
-          const parsed = restoreSettingsJsonSecrets(JSON.parse(settingsJson), apiKey)
+          const parsed = restoreSettingsJsonSecrets(JSON.parse(settingsJson), settingsJson, apiKey)
           const { providersApi } = await import('../api/providers')
           await providersApi.updateSettings(parsed)
         } catch {
@@ -1069,7 +1036,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
             onChange={(e) => {
               const raw = e.target.value
               try {
-                const parsed = restoreSettingsJsonSecrets(JSON.parse(raw), apiKey)
+                const parsed = restoreSettingsJsonSecrets(JSON.parse(raw), settingsJson, apiKey)
                 setSettingsJson(JSON.stringify(parsed, null, 2))
                 setSettingsJsonError(null)
                 // Auto-fill form fields from parsed JSON env
