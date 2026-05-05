@@ -1084,6 +1084,9 @@ fn stop_server_sidecar(app: &AppHandle) {
 /// 启动 adapter sidecar。返回 Result 主要为了把"无法 spawn"和"spawn 后立刻
 /// 退出（凭据缺失）"区分开 —— 后者不算错误，是正常 default 状态。
 fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
+    #[cfg(unix)]
+    kill_stale_unix_adapter_sidecars();
+
     let app_root = resolve_app_root(app)?;
     let app_root_arg = app_root.to_string_lossy().to_string();
 
@@ -1191,6 +1194,39 @@ fn stop_adapters_sidecar(app: &AppHandle) {
     };
     if let Some(child) = guard.take() {
         let _ = child.kill();
+    }
+}
+
+#[cfg(unix)]
+fn kill_stale_unix_adapter_sidecars() {
+    let current_pid = std::process::id();
+    let Ok(output) = StdCommand::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+    else {
+        return;
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let mut parts = line.trim_start().splitn(2, char::is_whitespace);
+        let Some(pid_text) = parts.next() else {
+            continue;
+        };
+        let Some(command) = parts.next() else {
+            continue;
+        };
+        let Ok(pid) = pid_text.parse::<u32>() else {
+            continue;
+        };
+        if pid == current_pid {
+            continue;
+        }
+        if !command.contains("claude-sidecar") || !command.contains(" adapters") {
+            continue;
+        }
+
+        let _ = StdCommand::new("kill").arg(pid.to_string()).status();
     }
 }
 
