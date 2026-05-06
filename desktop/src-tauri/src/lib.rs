@@ -54,9 +54,7 @@ mod macos_notifications {
             error_buffer: *mut c_char,
             error_buffer_len: usize,
         ) -> bool;
-        fn cchh_set_notification_response_callback(
-            callback: Option<extern "C" fn(*const c_char)>,
-        );
+        fn cchh_set_notification_response_callback(callback: Option<extern "C" fn(*const c_char)>);
     }
 
     #[derive(Clone, Serialize)]
@@ -141,7 +139,10 @@ mod macos_notifications {
         };
 
         super::show_main_window(&app);
-        let _ = app.emit("desktop-notification-clicked", NotificationClickPayload { target });
+        let _ = app.emit(
+            "desktop-notification-clicked",
+            NotificationClickPayload { target },
+        );
     }
 
     pub fn install_click_handler(app: AppHandle) {
@@ -174,7 +175,8 @@ mod macos_notifications {
                 title.as_ptr(),
                 body.as_ref()
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
-                target.as_ref()
+                target
+                    .as_ref()
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
                 error_buffer.as_mut_ptr(),
                 ERROR_BUFFER_LEN,
@@ -343,12 +345,26 @@ fn prepare_for_update_install(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn mark_app_quitting(app: &AppHandle) {
+#[tauri::command]
+fn cancel_update_install(app: AppHandle) -> Result<(), String> {
+    clear_app_quitting(&app);
+    Ok(())
+}
+
+fn set_app_quitting(app: &AppHandle, next: bool) {
     if let Some(state) = app.try_state::<AppExitState>() {
         if let Ok(mut is_quitting) = state.is_quitting.lock() {
-            *is_quitting = true;
+            *is_quitting = next;
         }
     }
+}
+
+fn mark_app_quitting(app: &AppHandle) {
+    set_app_quitting(app, true);
+}
+
+fn clear_app_quitting(app: &AppHandle) {
+    set_app_quitting(app, false);
 }
 
 fn should_hide_to_tray(app: &AppHandle, label: &str) -> bool {
@@ -1484,6 +1500,7 @@ pub fn run() {
             get_server_url,
             restart_adapters_sidecar,
             prepare_for_update_install,
+            cancel_update_install,
             terminal_spawn,
             terminal_write,
             terminal_resize,

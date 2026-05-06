@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { evaluateChangePolicy } from './change-policy'
+import { changedFilesForLocalPrCheck } from './changed-files'
 
 async function run(cmd: string[], options: { optional?: boolean } = {}) {
   console.log(`\n$ ${cmd.join(' ')}`)
@@ -17,58 +18,9 @@ async function run(cmd: string[], options: { optional?: boolean } = {}) {
   return code
 }
 
-async function output(cmd: string[]) {
-  const proc = Bun.spawn(cmd, {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const code = await proc.exited
-
-  if (code !== 0) {
-    throw new Error(stderr || stdout || `Command failed: ${cmd.join(' ')}`)
-  }
-
-  return stdout.trim()
-}
-
-async function outputOrEmpty(cmd: string[]) {
-  try {
-    return await output(cmd)
-  } catch {
-    return ''
-  }
-}
-
-async function localChangedFiles() {
-  const staged = await outputOrEmpty(['git', 'diff', '--name-only', '--cached'])
-  const unstaged = await outputOrEmpty(['git', 'diff', '--name-only'])
-  const untracked = await outputOrEmpty(['git', 'ls-files', '--others', '--exclude-standard'])
-
-  return [...staged.split(/\r?\n/), ...unstaged.split(/\r?\n/), ...untracked.split(/\r?\n/)]
-    .filter(Boolean)
-}
-
 async function changedFiles() {
   const explicit = process.argv.slice(2).filter((arg) => !arg.startsWith('--'))
-  if (explicit.length > 0) {
-    return explicit
-  }
-
-  const base = process.env.PR_BASE_REF ?? 'origin/main'
-  const localFiles = await localChangedFiles()
-  try {
-    const diff = await output(['git', 'diff', '--name-only', `${base}...HEAD`])
-    return [...new Set([...diff.split(/\r?\n/), ...localFiles].filter(Boolean))]
-  } catch {
-    try {
-      const diff = await output(['git', 'diff', '--name-only', 'main...HEAD'])
-      return [...new Set([...diff.split(/\r?\n/), ...localFiles].filter(Boolean))]
-    } catch {
-      return [...new Set(localFiles)]
-    }
-  }
+  return changedFilesForLocalPrCheck(explicit)
 }
 
 const files = await changedFiles()

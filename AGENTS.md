@@ -41,6 +41,11 @@ Use TypeScript with 2-space indentation, ESM imports, and no semicolons to match
 ## Testing Guidelines
 Desktop tests use Vitest with Testing Library in a `jsdom` environment. Name tests `*.test.ts` or `*.test.tsx`; colocate focused tests near the file or place broader coverage in `desktop/src/__tests__/`. Add regression tests for behavior changes and keep the coverage ratchet from dropping.
 
+## Persistent Storage Compatibility
+- Any change to local JSON, `localStorage`, or app config persistence formats must ship with a forward migration, an old-fixture regression test, and a persistence upgrade gate.
+- `~/.claude/settings.json` is user-owned shared state: preserve unknown fields on read/write, merge additively, and never write a repo-owned global `schemaVersion` into it.
+- If a persistence shape cannot be upgraded in place, the change is blocked until the upgrade path is explicit and tested.
+
 ## Feature Quality Contract
 Every feature, bugfix, and behavior change must ship with proof that matches the changed surface. Treat this as the implementation contract for both human authors and AI coding agents.
 

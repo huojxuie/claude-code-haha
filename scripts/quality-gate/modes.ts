@@ -82,6 +82,15 @@ export function lanesForMode(mode: QualityGateMode, baselineTargets: BaselineTar
       category: 'docs',
     },
     {
+      id: 'persistence-upgrade',
+      title: 'Persistence upgrade checks',
+      description: 'Validate local JSON and desktop localStorage migrations against old-version fixtures.',
+      kind: 'command',
+      command: ['bun', 'run', 'check:persistence-upgrade'],
+      requiredForModes: ['pr', 'release'],
+      category: 'governance',
+    },
+    {
       id: 'quarantine',
       title: 'Quarantine governance',
       description: 'Validate quarantined tests still have owners, exit criteria, and active review windows.',

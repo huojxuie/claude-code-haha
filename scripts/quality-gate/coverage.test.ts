@@ -4,6 +4,7 @@ import {
   evaluateThresholds,
   parseChangedLinesFromDiff,
   parseLcov,
+  prefixRelativeLcovSourcePaths,
 } from './coverage'
 
 describe('coverage gate helpers', () => {
@@ -57,6 +58,28 @@ describe('coverage gate helpers', () => {
 
     expect(summary.lines.pct).toBe(80)
     expect(summary.functions.pct).toBe(100)
+  })
+
+  test('prefixes package-relative lcov source paths for changed-line coverage', () => {
+    const lcov = prefixRelativeLcovSourcePaths([
+      'TN:',
+      'SF:src/stores/updateStore.ts',
+      'LF:1',
+      'LH:1',
+      'end_of_record',
+      'SF:/repo/desktop/src/main.tsx',
+      'LF:1',
+      'LH:0',
+      'end_of_record',
+      'SF:desktop/src/App.tsx',
+      'LF:1',
+      'LH:1',
+      'end_of_record',
+    ].join('\n'), 'desktop')
+
+    expect(lcov).toContain('SF:desktop/src/stores/updateStore.ts')
+    expect(lcov).toContain('SF:/repo/desktop/src/main.tsx')
+    expect(lcov).toContain('SF:desktop/src/App.tsx')
   })
 
   test('evaluates changed executable line coverage', () => {

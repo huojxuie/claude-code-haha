@@ -10,6 +10,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { ApiError } from '../middleware/errorHandler.js'
+import { normalizeJsonObject, readRecoverableJsonFile } from './recoverableJsonFile.js'
 import { anthropicToOpenaiChat } from '../proxy/transform/anthropicToOpenaiChat.js'
 import { anthropicToOpenaiResponses } from '../proxy/transform/anthropicToOpenaiResponses.js'
 import { openaiChatToAnthropic } from '../proxy/transform/openaiChatToAnthropic.js'
@@ -17,6 +18,10 @@ import { openaiResponsesToAnthropic } from '../proxy/transform/openaiResponsesTo
 import type { AnthropicRequest, AnthropicResponse } from '../proxy/transform/types.js'
 import { PROVIDER_PRESETS } from '../config/providerPresets.js'
 import { MODEL_CONTEXT_WINDOWS_ENV_KEY } from '../../utils/model/modelContextWindows.js'
+import {
+  CURRENT_PROVIDER_INDEX_SCHEMA_VERSION,
+  ensurePersistentStorageUpgraded,
+} from './persistentStorageMigrations.js'
 import type {
   SavedProvider,
   ProvidersIndex,
@@ -46,8 +51,63 @@ const MANAGED_ENV_KEYS = [
 
 const CUSTOM_PROVIDER_MODEL_CAPABILITIES = 'thinking,effort,adaptive_thinking,max_effort'
 
-const DEFAULT_INDEX: ProvidersIndex = { activeId: null, providers: [] }
+const DEFAULT_INDEX: ProvidersIndex = {
+  schemaVersion: CURRENT_PROVIDER_INDEX_SCHEMA_VERSION,
+  activeId: null,
+  providers: [],
+}
 const AUTH_ENV_KEYS = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isProviderModels(value: unknown): value is SavedProvider['models'] {
+  return (
+    isRecord(value) &&
+    typeof value.main === 'string' &&
+    typeof value.haiku === 'string' &&
+    typeof value.sonnet === 'string' &&
+    typeof value.opus === 'string'
+  )
+}
+
+function isSavedProvider(value: unknown): value is SavedProvider {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === 'string' &&
+    typeof value.presetId === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.apiKey === 'string' &&
+    typeof value.baseUrl === 'string' &&
+    isProviderModels(value.models)
+  )
+}
+
+function normalizeProvidersIndex(value: unknown): ProvidersIndex | null {
+  if (!isRecord(value) || !Array.isArray(value.providers)) {
+    return null
+  }
+
+  const { activeProviderId: _legacyActiveProviderId, ...rest } = value
+  const providers = value.providers.filter(isSavedProvider)
+  const rawActiveId =
+    typeof value.activeId === 'string'
+      ? value.activeId
+      : typeof _legacyActiveProviderId === 'string'
+        ? _legacyActiveProviderId
+        : null
+  const activeId = rawActiveId && providers.some((provider) => provider.id === rawActiveId)
+    ? rawActiveId
+    : null
+
+  return {
+    ...rest,
+    schemaVersion: CURRENT_PROVIDER_INDEX_SCHEMA_VERSION,
+    activeId,
+    providers,
+  }
+}
 
 function getPresetDefaultEnv(presetId: string): Record<string, string> {
   return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.defaultEnv ?? {}
@@ -133,15 +193,13 @@ export class ProviderService {
   }
 
   private async readIndex(): Promise<ProvidersIndex> {
-    try {
-      const raw = await fs.readFile(this.getIndexPath(), 'utf-8')
-      return JSON.parse(raw) as ProvidersIndex
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { ...DEFAULT_INDEX, providers: [] }
-      }
-      throw ApiError.internal(`Failed to read providers index: ${err}`)
-    }
+    await ensurePersistentStorageUpgraded()
+    return readRecoverableJsonFile({
+      filePath: this.getIndexPath(),
+      label: 'providers index',
+      defaultValue: DEFAULT_INDEX,
+      normalize: normalizeProvidersIndex,
+    })
   }
 
   private async writeIndex(index: ProvidersIndex): Promise<void> {
@@ -160,13 +218,13 @@ export class ProviderService {
   }
 
   private async readSettings(): Promise<Record<string, unknown>> {
-    try {
-      const raw = await fs.readFile(this.getSettingsPath(), 'utf-8')
-      return JSON.parse(raw) as Record<string, unknown>
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
-      throw ApiError.internal(`Failed to read settings.json: ${err}`)
-    }
+    await ensurePersistentStorageUpgraded()
+    return readRecoverableJsonFile({
+      filePath: this.getSettingsPath(),
+      label: 'cc-haha managed settings',
+      defaultValue: {},
+      normalize: normalizeJsonObject,
+    })
   }
 
   private async writeSettings(settings: Record<string, unknown>): Promise<void> {

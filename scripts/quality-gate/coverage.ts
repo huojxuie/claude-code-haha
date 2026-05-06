@@ -190,6 +190,21 @@ function normalizeCoveragePath(path: string, rootDir = ROOT_DIR) {
   return normalized.replace(/^\.\//, '')
 }
 
+export function prefixRelativeLcovSourcePaths(content: string, prefix: string) {
+  const normalizedPrefix = prefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  return content.replace(/^SF:(.+)$/gm, (line, sourcePath: string) => {
+    const normalizedSourcePath = String(sourcePath).replace(/\\/g, '/').replace(/^\.\//, '')
+    if (
+      normalizedSourcePath.startsWith('/') ||
+      /^[A-Za-z]:\//.test(normalizedSourcePath) ||
+      normalizedSourcePath.startsWith(`${normalizedPrefix}/`)
+    ) {
+      return line
+    }
+    return `SF:${normalizedPrefix}/${normalizedSourcePath}`
+  })
+}
+
 function matchesScope(file: string, scope: CoverageScope) {
   const normalized = file.replace(/\\/g, '/')
   if (!scope.includePrefixes.some((prefix) => normalized.startsWith(prefix))) {
@@ -750,7 +765,7 @@ export async function runCoverageGate(options: {
   suites.push(adapters)
   const adaptersLcovPath = join(outputDir, 'adapters', 'lcov.info')
   if (adapters.status === 'passed' && existsSync(adaptersLcovPath)) {
-    const adaptersLcov = readFileSync(adaptersLcovPath, 'utf8')
+    const adaptersLcov = prefixRelativeLcovSourcePaths(readFileSync(adaptersLcovPath, 'utf8'), 'adapters')
     for (const [file, coverage] of lcovLineCoverage(adaptersLcov, 'adapters', ADAPTERS_SCOPE, rootDir)) {
       coverageByFile.set(file, coverage)
     }
@@ -778,7 +793,7 @@ export async function runCoverageGate(options: {
   suites.push(desktop)
   const desktopLcovPath = join(outputDir, 'desktop', 'lcov.info')
   if (desktop.status === 'passed' && existsSync(desktopLcovPath)) {
-    const desktopLcov = readFileSync(desktopLcovPath, 'utf8')
+    const desktopLcov = prefixRelativeLcovSourcePaths(readFileSync(desktopLcovPath, 'utf8'), 'desktop')
     for (const [file, coverage] of lcovLineCoverage(desktopLcov, 'desktop', DESKTOP_SCOPE, rootDir)) {
       coverageByFile.set(file, coverage)
     }

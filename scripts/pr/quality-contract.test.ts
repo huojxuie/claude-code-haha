@@ -6,6 +6,10 @@ describe('feature quality contract', () => {
     const agents = readFileSync('AGENTS.md', 'utf8')
 
     expect(agents).toContain('## Feature Quality Contract')
+    expect(agents).toContain('## Persistent Storage Compatibility')
+    expect(agents).toContain('Any change to local JSON, `localStorage`, or app config persistence formats must ship with a forward migration')
+    expect(agents).toContain('`~/.claude/settings.json` is user-owned shared state')
+    expect(agents).toContain('persistence upgrade gate')
     expect(agents).toContain('Production code changes under `desktop/src`, `src/server`, `src/tools`, `src/utils`, or `adapters` must include a same-area test file')
     expect(agents).toContain('Coverage is part of the feature, not an afterthought.')
     expect(agents).toContain('changed executable production line must meet the changed-line coverage gate')
@@ -38,6 +42,7 @@ describe('feature quality contract', () => {
 
     expect(packageJson.scripts?.verify).toBe('bun run quality:pr')
     expect(packageJson.scripts?.['quality:verify']).toBe('bun run quality:pr')
+    expect(packageJson.scripts?.['check:persistence-upgrade']).toBe('bun run scripts/quality-gate/persistence-upgrade.ts')
     expect(contributing).toContain('bun run verify')
     expect(contributing).toContain('AI Coding Agent 修复循环')
     expect(englishContributing).toContain('bun run verify')
