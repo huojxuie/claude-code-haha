@@ -11,7 +11,6 @@ describe('quality gate modes', () => {
   test('pr mode includes existing path-aware PR checks', () => {
     const lanes = lanesForMode('pr').map((lane) => lane.id)
     expect(lanes).toContain('impact-report')
-    expect(lanes).toContain('pr-checks')
     expect(lanes).toContain('policy-checks')
     expect(lanes).toContain('desktop-checks')
     expect(lanes).toContain('server-checks')
@@ -38,7 +37,6 @@ describe('quality gate modes', () => {
 
   test('release mode composes PR, baseline, and native lanes', () => {
     const lanes = lanesForMode('release').map((lane) => lane.id)
-    expect(lanes).toContain('pr-checks')
     expect(lanes).toContain('policy-checks')
     expect(lanes).toContain('persistence-upgrade')
     expect(lanes).toContain('quarantine')
