@@ -517,7 +517,9 @@ function AgentCallCard({
     result && !result.isError && !isLaunchResult && !isAgentLifecycleResult(result.content)
       ? extractAgentDisplayText(result.content).trim()
       : ''
-  const previewText = fullOutputText || (status === 'done' || status === 'stopped' ? taskResult || taskSummary : '')
+  const terminalTaskReport = status === 'done' || status === 'stopped' ? taskResult : ''
+  const terminalTaskSummary = status === 'done' || status === 'stopped' ? taskSummary : ''
+  const previewText = terminalTaskReport || fullOutputText || terminalTaskSummary
   const outputSummary = previewText ? getAgentOutputSummary(previewText) : ''
   const description = typeof input.description === 'string' ? input.description : ''
 

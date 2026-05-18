@@ -1075,6 +1075,65 @@ describe('MessageList nested tool calls', () => {
     expect(within(screen.getByRole('dialog')).getByText(resultText)).toBeTruthy()
   })
 
+  it('prefers the terminal task report over structured agent tool result JSON', () => {
+    const markdownReport = '## 审查安全风险\n\n- 最终报告应该按 Markdown 展示。'
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'tool-agent',
+              type: 'tool_use',
+              toolName: 'Agent',
+              toolUseId: 'agent-1',
+              input: { description: '查看安全报告' },
+              timestamp: 1,
+            },
+            {
+              id: 'result-agent',
+              type: 'tool_result',
+              toolUseId: 'agent-1',
+              content: {
+                results: [
+                  {
+                    file: 'git:v0.2.6..v0.2.7',
+                    line: 0,
+                    snippet: 'raw structured JSON should not be shown',
+                    context: '结构化检索结果不是给用户看的最终报告。',
+                  },
+                ],
+              },
+              isError: false,
+              timestamp: 2,
+            },
+          ],
+          agentTaskNotifications: {
+            'agent-1': {
+              taskId: 'agent-task-1',
+              toolUseId: 'agent-1',
+              status: 'completed',
+              summary: 'Agent "审查安全风险" completed',
+              result: markdownReport,
+            },
+          },
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/最终报告应该按 Markdown 展示。/)).toBeTruthy()
+    expect(screen.queryByText(/raw structured JSON should not be shown/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View result' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: '审查安全风险' })).toBeTruthy()
+    expect(within(dialog).getByText('最终报告应该按 Markdown 展示。')).toBeTruthy()
+    expect(within(dialog).queryByText(/raw structured JSON should not be shown/)).toBeNull()
+  })
+
   it('renders copy controls for user messages and scopes assistant copy to a single reply', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.assign(navigator, {
