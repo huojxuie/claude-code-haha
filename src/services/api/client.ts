@@ -109,6 +109,31 @@ export function resolveAnthropicClientApiKey({
   return explicitApiKey || getFallbackApiKey()
 }
 
+export function shouldUseOpenAICodexTransport({
+  hasOpenAIAuth,
+  isClaudeSubscriber,
+  forceOpenAICodex,
+  isOpenAIModel,
+  hasAnthropicAuthToken,
+  hasExplicitApiKey,
+  hasFallbackApiKey,
+}: {
+  hasOpenAIAuth: boolean
+  isClaudeSubscriber: boolean
+  forceOpenAICodex: boolean
+  isOpenAIModel: boolean
+  hasAnthropicAuthToken: boolean
+  hasExplicitApiKey: boolean
+  hasFallbackApiKey: boolean
+}): boolean {
+  return (
+    hasOpenAIAuth &&
+    (!isClaudeSubscriber || forceOpenAICodex) &&
+    (isOpenAIModel ||
+      (!hasAnthropicAuthToken && !hasExplicitApiKey && !hasFallbackApiKey))
+  )
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -157,14 +182,24 @@ export async function getAnthropicClient({
   logForDebugging('[API:auth] OAuth token check complete')
 
   const isOpenAIModel = model ? isOpenAIResponsesModel(model) : false
-  const usingOpenAICodex =
-    shouldUseOpenAICodexAuth() &&
-    !isClaudeAISubscriber() &&
-    (isOpenAIModel ||
-      (!process.env.ANTHROPIC_AUTH_TOKEN &&
-        !(apiKey || getAnthropicApiKey())))
+  const isClaudeSubscriber = isClaudeAISubscriber()
+  const forceOpenAICodex = isEnvTruthy(process.env.CC_HAHA_OPENAI_OAUTH_PROVIDER)
+  const hasOpenAIAuth = shouldUseOpenAICodexAuth()
+  const hasFallbackApiKey = hasOpenAIAuth &&
+    !process.env.ANTHROPIC_AUTH_TOKEN &&
+    !apiKey &&
+    !!getAnthropicApiKey()
+  const usingOpenAICodex = shouldUseOpenAICodexTransport({
+    hasOpenAIAuth,
+    isClaudeSubscriber,
+    forceOpenAICodex,
+    isOpenAIModel,
+    hasAnthropicAuthToken: !!process.env.ANTHROPIC_AUTH_TOKEN,
+    hasExplicitApiKey: !!apiKey,
+    hasFallbackApiKey,
+  })
 
-  if (!isClaudeAISubscriber() && !usingOpenAICodex) {
+  if (!isClaudeSubscriber && !usingOpenAICodex) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
@@ -333,12 +368,12 @@ export async function getAnthropicClient({
 
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAISubscriber()
-      ? null
-      : usingOpenAICodex
-        ? OPENAI_OAUTH_DUMMY_KEY
+    apiKey: usingOpenAICodex
+      ? OPENAI_OAUTH_DUMMY_KEY
+      : isClaudeSubscriber
+        ? null
         : resolveAnthropicClientApiKey({ explicitApiKey: apiKey }),
-    authToken: isClaudeAISubscriber()
+    authToken: isClaudeSubscriber && !usingOpenAICodex
       ? getClaudeAIOAuthTokens()?.accessToken
       : undefined,
     // Set baseURL from OAuth config when using staging OAuth
