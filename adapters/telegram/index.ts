@@ -19,6 +19,11 @@ import {
   splitMessage,
 } from '../common/format.js'
 import {
+  formatTelegramOutboundText,
+  formatTelegramStreamingText,
+  planTelegramStreamingUpdate,
+} from './format.js'
+import {
   formatPermissionDecisionStatus,
   formatPermissionInstructions,
   parsePermissionCommand,
@@ -37,6 +42,7 @@ import type { PendingUpload } from '../common/attachment/attachment-types.js'
 import * as fs from 'node:fs/promises'
 
 const TELEGRAM_TEXT_LIMIT = 4000 // leave margin below 4096
+const TELEGRAM_STREAMING_TEXT_LIMIT = TELEGRAM_TEXT_LIMIT - 2 // reserve room for cursor
 
 // ---------- init ----------
 
@@ -208,14 +214,14 @@ async function buildStatusText(chatId: string): Promise<string> {
 async function flushToTelegram(chatId: string, newText: string, isComplete: boolean): Promise<void> {
   const numericChatId = Number(chatId)
   const prev = accumulatedText.get(chatId) ?? ''
-  const fullText = prev + newText
-  accumulatedText.set(chatId, fullText)
 
   const placeholder = placeholders.get(chatId)
 
   if (placeholder) {
     if (isComplete) {
-      const chunks = splitMessage(fullText, TELEGRAM_TEXT_LIMIT)
+      const fullText = prev + newText
+      accumulatedText.set(chatId, fullText)
+      const chunks = splitMessage(formatTelegramOutboundText(fullText), TELEGRAM_TEXT_LIMIT)
       try {
         await bot.api.editMessageText(numericChatId, placeholder.messageId, chunks[0]!)
       } catch { /* ignore */ }
@@ -223,16 +229,45 @@ async function flushToTelegram(chatId: string, newText: string, isComplete: bool
         await bot.api.sendMessage(numericChatId, chunks[i]!)
       }
     } else {
-      const displayText = fullText.slice(0, TELEGRAM_TEXT_LIMIT - 2) + ' ▍'
+      const { sealedChunks, activeChunk } = planTelegramStreamingUpdate(
+        prev,
+        newText,
+        TELEGRAM_STREAMING_TEXT_LIMIT,
+      )
+      accumulatedText.set(chatId, activeChunk)
       try {
-        await bot.api.editMessageText(numericChatId, placeholder.messageId, displayText)
+        const firstSealedChunk = sealedChunks.shift()
+        if (firstSealedChunk) {
+          const firstSealedFormattedChunks = splitMessage(
+            formatTelegramOutboundText(firstSealedChunk),
+            TELEGRAM_TEXT_LIMIT,
+          )
+          await bot.api.editMessageText(numericChatId, placeholder.messageId, firstSealedFormattedChunks[0]!)
+          for (let i = 1; i < firstSealedFormattedChunks.length; i++) {
+            await bot.api.sendMessage(numericChatId, firstSealedFormattedChunks[i]!)
+          }
+          for (const chunk of sealedChunks) {
+            const formattedChunks = splitMessage(formatTelegramOutboundText(chunk), TELEGRAM_TEXT_LIMIT)
+            for (const formattedChunk of formattedChunks) {
+              await bot.api.sendMessage(numericChatId, formattedChunk)
+            }
+          }
+          const sent = await bot.api.sendMessage(numericChatId, formatTelegramStreamingText(activeChunk))
+          placeholders.set(chatId, { chatId, messageId: sent.message_id })
+        } else {
+          await bot.api.editMessageText(numericChatId, placeholder.messageId, formatTelegramStreamingText(activeChunk))
+        }
       } catch { /* ignore */ }
     }
-  } else if (isComplete && fullText.trim()) {
-    const chunks = splitMessage(fullText, TELEGRAM_TEXT_LIMIT)
+  } else if (isComplete && (prev + newText).trim()) {
+    const fullText = prev + newText
+    accumulatedText.set(chatId, fullText)
+    const chunks = splitMessage(formatTelegramOutboundText(fullText), TELEGRAM_TEXT_LIMIT)
     for (const chunk of chunks) {
       await bot.api.sendMessage(numericChatId, chunk)
     }
+  } else {
+    accumulatedText.set(chatId, prev + newText)
   }
 
   if (isComplete) {
@@ -392,7 +427,11 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
           const text = accumulatedText.get(chatId)
           if (text?.trim()) {
             try {
-              await bot.api.editMessageText(numericChatId, placeholders.get(chatId)!.messageId, text)
+              await bot.api.editMessageText(
+                numericChatId,
+                placeholders.get(chatId)!.messageId,
+                formatTelegramOutboundText(text),
+              )
             } catch { /* ignore */ }
           }
           placeholders.delete(chatId)
@@ -458,7 +497,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
         const text = accumulatedText.get(chatId)
         if (text?.trim()) {
           try {
-            const chunks = splitMessage(text, TELEGRAM_TEXT_LIMIT)
+            const chunks = splitMessage(formatTelegramOutboundText(text), TELEGRAM_TEXT_LIMIT)
             await bot.api.editMessageText(numericChatId, placeholders.get(chatId)!.messageId, chunks[0]!)
             for (let i = 1; i < chunks.length; i++) {
               await bot.api.sendMessage(numericChatId, chunks[i]!)
