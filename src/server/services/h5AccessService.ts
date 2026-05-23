@@ -179,6 +179,11 @@ export function resolveEffectiveH5PublicBaseUrl({
     return autoPublicBaseUrl
   }
 
+  const refreshedLanUrl = refreshLanPublicBaseUrlPort(storedPublicBaseUrl, autoPublicBaseUrl)
+  if (refreshedLanUrl) {
+    return refreshedLanUrl
+  }
+
   return storedPublicBaseUrl
 }
 
@@ -201,6 +206,27 @@ function isLocalHost(hostname: string): boolean {
     hostname === '::1' ||
     hostname === '0.0.0.0' ||
     hostname === '::'
+}
+
+function refreshLanPublicBaseUrlPort(storedPublicBaseUrl: string, autoPublicBaseUrl: string): string | null {
+  try {
+    const stored = new URL(storedPublicBaseUrl)
+    const auto = new URL(autoPublicBaseUrl)
+    const storedPath = stored.pathname.replace(/\/+$/, '')
+
+    if (
+      stored.protocol !== 'http:' ||
+      storedPath !== '' ||
+      !isPrivateIPv4(stored.hostname) ||
+      !auto.port
+    ) {
+      return null
+    }
+
+    return `${stored.protocol}//${stored.hostname}:${auto.port}`
+  } catch {
+    return null
+  }
 }
 
 type NetworkInterfaces = ReturnType<typeof os.networkInterfaces>

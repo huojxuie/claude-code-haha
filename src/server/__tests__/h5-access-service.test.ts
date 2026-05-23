@@ -101,7 +101,7 @@ describe('H5AccessService', () => {
     expect(result.settings.publicBaseUrl).toBe('https://chat.example.com/app')
   })
 
-  test('auto LAN mode fills blank or loopback URLs but preserves manual LAN URLs', () => {
+  test('auto LAN mode fills blank or loopback URLs and refreshes manual LAN ports', () => {
     expect(resolveEffectiveH5PublicBaseUrl({
       enabled: true,
       storedPublicBaseUrl: null,
@@ -121,7 +121,7 @@ describe('H5AccessService', () => {
       storedPublicBaseUrl: 'http://192.168.1.100:54064',
       configuredPublicBaseUrl: null,
       autoPublicBaseUrl: 'http://172.20.16.1:39876',
-    })).toBe('http://192.168.1.100:54064')
+    })).toBe('http://192.168.1.100:39876')
 
     expect(resolveEffectiveH5PublicBaseUrl({
       enabled: true,
@@ -129,6 +129,22 @@ describe('H5AccessService', () => {
       configuredPublicBaseUrl: null,
       autoPublicBaseUrl: 'http://192.168.0.102:39876',
     })).toBe('https://chat.example.com/app')
+  })
+
+  test('auto LAN mode keeps full reverse proxy URLs intact', () => {
+    expect(resolveEffectiveH5PublicBaseUrl({
+      enabled: true,
+      storedPublicBaseUrl: 'https://192.168.1.100:8443',
+      configuredPublicBaseUrl: null,
+      autoPublicBaseUrl: 'http://192.168.1.100:39876',
+    })).toBe('https://192.168.1.100:8443')
+
+    expect(resolveEffectiveH5PublicBaseUrl({
+      enabled: true,
+      storedPublicBaseUrl: 'http://192.168.1.100:8080/h5',
+      configuredPublicBaseUrl: null,
+      autoPublicBaseUrl: 'http://192.168.1.100:39876',
+    })).toBe('http://192.168.1.100:8080/h5')
   })
 
   test('auto LAN detection prefers physical adapters over WSL and Docker virtual adapters', () => {
